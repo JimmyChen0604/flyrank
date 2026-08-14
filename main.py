@@ -127,10 +127,13 @@ def create_task(task_data: TaskCreate):
     title = task_data.title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title cannot be empty.")
-
-    new_task = Task(id=next_id(), title=title, done=False)
-    tasks_db.append(new_task)
-    return new_task
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO tasks (title, done) VALUES (?, ?)", (title, False))
+    new_task_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return Task(id=new_task_id, title=title, done=False)
 
 
 # ---------- Stage 4: update and delete ----------
