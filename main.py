@@ -7,11 +7,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from db import get_db_connection, init_db
+
 app = FastAPI(
     title="Task API",
-    description="A small in-memory CRUD API for managing tasks.",
+    description="A small CRUD API for managing tasks.",
     version="1.0",
 )
+
+init_db()
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
@@ -24,7 +28,6 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 @app.exception_handler(StarletteHTTPException)
 async def http_error_handler(request: Request, exc: StarletteHTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
-
 
 # ---------- Models ----------
 
@@ -49,7 +52,7 @@ class TaskUpdate(BaseModel):
     done: Optional[bool] = None
 
 
-# ---------- "Database" ----------
+# ---------- In-memory store (create / update / delete until later stages) ----------
 
 tasks_db: List[Task] = [
     Task(id=1, title="internship", done=False),
@@ -93,17 +96,22 @@ def health():
 
 @app.get("/tasks", response_model=List[Task], summary="List all tasks")
 def list_tasks():
-    """Return every task currently stored in memory."""
-    return tasks_db
+    """Return every task stored in the database."""
+    conn = get_db_connection()
+    rows = conn.execute("SELECT id, title, done FROM tasks").fetchall()
+    conn.close()
+    return [Task(id=row["id"], title=row["title"], done=bool(row["done"])) for row in rows]
 
 
 @app.get("/tasks/{id}", response_model=Task, summary="Get one task")
 def get_task(id: int):
     """Return a single task by id, or 404 if no task has that id."""
-    task = find_task(id)
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"Task {id} not found")
-    return task
+    conn = get_db_connection()
+    row = conn.execute("SELECT id, title, done FROM tasks WHERE id = ?", (id,)).fetchone()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return Task(id=row["id"], title=row["title"], done=bool(row["done"]))
 
 
 # ---------- Stage 3: create ----------
